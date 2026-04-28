@@ -1,0 +1,35 @@
+{
+  "generated_at": "2026-04-27T00:00:00Z",
+  "source": "EXAMPLE DATA - replace by running scraper.py",
+  "lookback_days": 365,
+  "permit_count": 6,
+  "permits": [
+    {
+      "record_number": "BLDR-2026-00123",
+      "date": "04/15/2026",
+      "status": "Plan Review",
+      "address": "1100 Aqui Esta Dr, Punta Gorda, FL",
+      "description": "Roof-mount residential solar PV system, 8.4 kW",
+      "license_type": "C SOLAR ENERGY",
+      "lat": 26.9272,
+      "lon": -82.0445
+    },
+    {
+      "record_number": "BLDR-2026-00198",
+      "date": "04/18/2026",
+      "status": "Submitted",
+      "address": "23456 Harborview Rd, Port Charlotte, FL",
+      "description": "Solar PV with battery backup, 10.2 kW",
+      "license_type": "C SOLAR ENERGY",
+      "lat": 26.9897,
+      "lon": -82.1090
+    },
+    {
+      "record_number": "BLDR-2026-00211",
+      "date": "04/20/2026",
+      "status": "Issued",
+      "address": "5678 Murdock Cir, Port Charlotte, FL",
+      "description": "Roof-mount solar PV, 6.8 kW",
+      "license_type": "C SOLAR ENERGY",
+      "lat": 27.0125,
+      "lon": -82.1378​​​​​​​​​​​​​​​​
