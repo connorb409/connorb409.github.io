@@ -1,0 +1,43 @@
+# Charlotte County Solar Permits — Live Map
+
+Scrapes the [Charlotte County BOCC Accela Citizen Access portal](https://aca-prod.accela.com/BOCC/Cap/CapHome.aspx?module=Building&TabName=Building) for solar permits across all statuses, geocodes the addresses, and plots them on a color-coded interactive map.
+
+## What it does
+
+- Searches three solar license types: `C SOLAR ENERGY`, `C SOLAR SYSTEM`, `C SOLAR WAT HEAT`
+- Pulls the last 365 days of permits
+- Geocodes each address with OpenStreetMap Nominatim (free, cached)
+- Saves results to `permits.json`
+- The map app loads `permits.json` and displays markers color-coded by status
+
+## Color legend
+
+| Status | Color |
+|---|---|
+| Issued / Approved | teal-green |
+| In Review | amber |
+| Submitted | blue |
+| Pending | purple |
+| Finaled / Closed | emerald |
+| On Hold | orange |
+| Expired | red |
+| Void / Withdrawn | gray |
+| Other | lavender |
+
+## How it stays updated
+
+A GitHub Action (`.github/workflows/refresh.yml`) runs the scraper every day at 11:00 UTC and commits any changes to `permits.json`. The map served via GitHub Pages picks up the new data automatically.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `scraper.py` | Scrapes Accela + geocodes; writes `permits.json` |
+| `index.html` | Single-file map app (Leaflet + dark CARTO tiles) |
+| `permits.json` | Generated data file |
+| `.geocode_cache.json` | Geocoded address cache (auto-managed) |
+| `.github/workflows/refresh.yml` | Daily refresh CI job |
+
+## Source
+
+All data is sourced from public records on the Charlotte County, FL Board of County Commissioners Accela Citizen Access portal.
