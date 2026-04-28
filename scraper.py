@@ -82,5 +82,7 @@ def make_session():
 def get_form_state(html):
     soup = BeautifulSoup(html, "html.parser")
     state = {}
-    for name in VS_KEYS:
-        el = soup.​​​​​​​​​​​​​​​​
+        for name in VS_KEYS:
+        el = soup.find("input", {"name": name})
+        if el is not None:
+            state[name] = el.get("value", "")
