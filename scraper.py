@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """
-Charlotte County, FL Solar Permit Scraper
-Scrapes the BOCC Accela Citizen Access portal, filters for solar permits
-across all statuses, geocodes the addresses, and writes permits.json.
+Charlotte County, FL Solar Permit Scraper - DEBUG VERSION
 """
 
 import json
@@ -29,6 +27,7 @@ SOLAR_LICENSE_TYPES = [
 LOOKBACK_DAYS = 365
 OUTPUT_FILE = Path(__file__).parent / "permits.json"
 CACHE_FILE = Path(__file__).parent / ".geocode_cache.json"
+DEBUG_DIR = Path(__file__).parent / "debug_html"
 
 REQUEST_DELAY_SEC = 1.5
 PAGE_DELAY_SEC = 2.0
@@ -76,23 +75,39 @@ def discover_field_names(html):
         opts = [o.get_text(strip=True) for o in select.find_all("option")]
         if any("SOLAR ENERGY" in o for o in opts):
             fields["license_type"] = select.get("name")
+            log.info("DEBUG: found license_type select: %s", select.get("name"))
             break
     fields["start_date"] = find_input_by_label_fragment(soup, r"Start Date")
     fields["end_date"] = find_input_by_label_fragment(soup, r"End Date")
+    log.info("DEBUG: discovered fields: %s", fields)
     for btn in soup.find_all("a"):
         if btn.get("title") == "Search" and "btnNewSearch" in (btn.get("href") or ""):
             m = re.search(r"WebForm_PostBackOptions\(new WebForm_PostBackOptions\(\"([^\"]+)\"", btn["href"])
             if m:
                 fields["search_event_target"] = m.group(1)
+                log.info("DEBUG: search button event target: %s", m.group(1))
                 break
     return fields
 
 
+def save_debug_html(html, label):
+    DEBUG_DIR.mkdir(exist_ok=True)
+    safe_label = re.sub(r"[^a-z0-9_]+", "_", label.lower())[:50]
+    path = DEBUG_DIR / f"{safe_label}.html"
+    path.write_text(html)
+    log.info("DEBUG: saved %d chars to %s", len(html), path)
+
+
 def run_search(session, license_type, start_date, end_date):
+    log.info("=" * 60)
     log.info("Searching license type: %s (%s -> %s)", license_type, start_date, end_date)
     resp = session.get(SEARCH_URL, timeout=30)
     resp.raise_for_status()
+    log.info("DEBUG: GET search page returned %d, length=%d", resp.status_code, len(resp.text))
+    save_debug_html(resp.text, f"01_form_{license_type}")
+
     state = extract_form_state(resp.text)
+    log.info("DEBUG: viewstate keys present: %s", list(state.keys()))
     fields = discover_field_names(resp.text)
 
     if not fields.get("license_type"):
@@ -110,9 +125,29 @@ def run_search(session, license_type, start_date, end_date):
     if fields.get("end_date"):
         payload[fields["end_date"]] = end_date
 
+    log.info("DEBUG: POST payload keys: %s", list(payload.keys()))
+    log.info("DEBUG: license_type field set to: %s", license_type)
+
     time.sleep(REQUEST_DELAY_SEC)
     resp = session.post(SEARCH_URL, data=payload, timeout=60)
     resp.raise_for_status()
+    log.info("DEBUG: POST returned status=%d, length=%d, final URL=%s",
+             resp.status_code, len(resp.text), resp.url)
+    save_debug_html(resp.text, f"02_results_{license_type}")
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    log.info("DEBUG: results page title: %s", (soup.title.string.strip() if soup.title and soup.title.string else 'no title'))
+
+    error_msgs = soup.select(".ACA_ErrorMessage, .ACA_Message_Error, [class*='error']")
+    visible_errors = [e.get_text(strip=True)[:200] for e in error_msgs if e.get_text(strip=True)]
+    if visible_errors:
+        log.info("DEBUG: error/message elements: %s", visible_errors[:5])
+
+    body_text = soup.get_text(" ", strip=True)
+    log.info("DEBUG: first 800 chars of body: %s", body_text[:800])
+
+    h_tags = [h.get_text(strip=True) for h in soup.select("h1, h2, h3") if h.get_text(strip=True)]
+    log.info("DEBUG: headings on page: %s", h_tags[:10])
 
     permits = []
     page_num = 1
@@ -133,7 +168,6 @@ def run_search(session, license_type, start_date, end_date):
         resp.raise_for_status()
         page_num += 1
         if page_num > 50:
-            log.warning("Hit page-count safety limit (50). Stopping.")
             break
     return permits
 
@@ -141,13 +175,28 @@ def run_search(session, license_type, start_date, end_date):
 def parse_results_page(html):
     soup = BeautifulSoup(html, "html.parser")
     permits = []
+
     rows = soup.select("tr[id*='trDataRow']")
+    log.info("DEBUG: rows via 'tr[id*=trDataRow]': %d", len(rows))
+
     if not rows:
-        for table in soup.find_all("table"):
+        all_tables = soup.find_all("table")
+        log.info("DEBUG: total tables on page: %d", len(all_tables))
+        for i, table in enumerate(all_tables):
             headers = [th.get_text(strip=True).lower() for th in table.find_all("th")]
+            if headers:
+                log.info("DEBUG: table %d headers: %s", i, headers[:8])
             if any("record" in h for h in headers) and any("date" in h for h in headers):
                 rows = table.find_all("tr")[1:]
+                log.info("DEBUG: using table %d, found %d data rows", i, len(rows))
                 break
+
+    if not rows:
+        gridviews = soup.select("[class*='GridView'], [id*='GridView'], [id*='gdvPermitList']")
+        log.info("DEBUG: gridview-like elements found: %d", len(gridviews))
+        for gv in gridviews[:3]:
+            log.info("DEBUG: gridview id=%s, class=%s, rows inside=%d",
+                     gv.get('id'), gv.get('class'), len(gv.find_all('tr')))
 
     for row in rows:
         cells = row.find_all("td")
@@ -209,105 +258,4 @@ def _first_address(texts):
 
 def _last_status(texts):
     status_keywords = (
-        "issued", "review", "submitted", "pending", "approved", "void",
-        "expired", "finaled", "closed", "hold", "withdrawn", "in process",
-        "incomplete", "ready",
-    )
-    for t in reversed(texts):
-        if any(k in t.lower() for k in status_keywords) and len(t) < 60:
-            return t
-    return None
-
-
-def load_geocode_cache():
-    if CACHE_FILE.exists():
-        try:
-            return json.loads(CACHE_FILE.read_text())
-        except Exception:
-            return {}
-    return {}
-
-
-def save_geocode_cache(cache):
-    CACHE_FILE.write_text(json.dumps(cache, indent=2))
-
-
-def geocode(address, cache):
-    if not address:
-        return None, None
-    full = f"{address}, Charlotte County, FL, USA"
-    if full in cache:
-        return cache[full].get("lat"), cache[full].get("lon")
-    try:
-        time.sleep(1.1)
-        r = requests.get(
-            "https://nominatim.openstreetmap.org/search",
-            params={"q": full, "format": "json", "limit": 1, "countrycodes": "us"},
-            headers={"User-Agent": "charlotte-county-solar-permits/1.0"},
-            timeout=20,
-        )
-        r.raise_for_status()
-        data = r.json()
-        if data:
-            lat = float(data[0]["lat"])
-            lon = float(data[0]["lon"])
-            cache[full] = {"lat": lat, "lon": lon}
-            return lat, lon
-    except Exception as e:
-        log.warning("Geocode failed for %s: %s", full, e)
-    cache[full] = {"lat": None, "lon": None}
-    return None, None
-
-
-def main():
-    today = datetime.now()
-    start = (today - timedelta(days=LOOKBACK_DAYS)).strftime("%m/%d/%Y")
-    end = today.strftime("%m/%d/%Y")
-
-    session = requests.Session()
-    session.headers.update({"User-Agent": USER_AGENT})
-
-    all_permits = []
-    seen = set()
-
-    for lt in SOLAR_LICENSE_TYPES:
-        try:
-            permits = run_search(session, lt, start, end)
-        except Exception as e:
-            log.exception("Search failed for %s: %s", lt, e)
-            continue
-        for p in permits:
-            rn = p.get("record_number")
-            if not rn or rn in seen:
-                continue
-            seen.add(rn)
-            p["license_type"] = lt
-            all_permits.append(p)
-
-    log.info("Total unique solar permits scraped: %d", len(all_permits))
-
-    log.info("Geocoding addresses...")
-    cache = load_geocode_cache()
-    for i, p in enumerate(all_permits, 1):
-        lat, lon = geocode(p.get("address") or "", cache)
-        p["lat"] = lat
-        p["lon"] = lon
-        if i % 10 == 0:
-            log.info("  geocoded %d/%d", i, len(all_permits))
-            save_geocode_cache(cache)
-    save_geocode_cache(cache)
-
-    output = {
-        "generated_at": datetime.utcnow().isoformat() + "Z",
-        "source": SEARCH_URL,
-        "lookback_days": LOOKBACK_DAYS,
-        "permit_count": len(all_permits),
-        "permits": all_permits,
-    }
-    OUTPUT_FILE.write_text(json.dumps(output, indent=2))
-    log.info("Wrote %s (%d permits)", OUTPUT_FILE, len(all_permits))
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+        "issued", "review", "submitted", "pending", "approved", "void",​​​​​​​​​​​​​​​​
